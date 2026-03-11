@@ -360,6 +360,7 @@ class Vine {
     this.dead     = false;
     this.hue      = (Math.random() - 0.5) * 28;
     this.flip     = Math.random() > 0.5 ? 1 : -1;
+    this.born     = performance.now();
   }
 
   vpt(i, t) {
@@ -413,6 +414,12 @@ class Vine {
             });
           }
         }
+      }
+
+      // vines that have been growing too long wilt on their own
+      if (t - this.born > 18000) {
+        this.wilting = true;
+        this.tendrils.forEach(td => (td.wilting = true));
       }
 
       const tip = this.tip;
@@ -601,7 +608,8 @@ function loop() {
   drawBackground(t);
 
   const aliveCount = vines.reduce((n, v) => n + (v.dead ? 0 : 1), 0);
-  if (t - lastSpawn > 1800 && aliveCount < 12) {
+  const spawnInterval = 2200 + aliveCount * 800;
+  if (t - lastSpawn > spawnInterval && aliveCount < 6) {
     spawnVine();
     lastSpawn = t;
   }
