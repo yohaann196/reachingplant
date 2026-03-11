@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Longing — A Study in Reaching</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Cinzel:wght@300;400;600&display=swap');
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #060a05;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    cursor: none;
+  }
+
+  #canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+
+  #cursor {
+    position: fixed;
+    pointer-events: none;
+    z-index: 50;
+    transform: translate(-50%, -50%);
+  }
+  #cursor svg { display: block; }
+
+  #whisper {
+    position: fixed;
+    bottom: 2rem; left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 0.9rem;
+    color: rgba(180,160,110,0.55);
+    letter-spacing: 0.1em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1.5s ease;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  #whisper.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+
+<canvas id="canvas"></canvas>
+
+<div id="cursor">
+  <svg width="32" height="32" viewBox="0 0 32 32">
+    <defs>
+      <radialGradient id="cg" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(200,230,160,0.9)"/>
+        <stop offset="60%" stop-color="rgba(160,200,110,0.4)"/>
+        <stop offset="100%" stop-color="rgba(100,160,60,0)"/>
+      </radialGradient>
+    </defs>
+    <circle cx="16" cy="16" r="15" fill="url(#cg)"/>
+    <circle cx="16" cy="16" r="3.5" fill="rgba(220,240,180,0.95)"/>
+  </svg>
+</div>
+
+<div id="whisper"></div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+const whisperEl = document.getElementById('whisper');
+
+let W = canvas.width  = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+window.addEventListener('resize', () => {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+});
+
+let mouse = { x: W/2, y: H/2, moved: false };
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  mouse.moved = true;
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top = e.clientY + 'px';
+});
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  mouse.x = e.touches[0].clientX;
+  mouse.y = e.touches[0].clientY;
+  mouse.moved = true;
+}, { passive: false });
+
+
+// little messages that appear when a vine dies
+const lines = [
+  'it grew toward you',
+  'the reaching was the living',
+  'there is no arrival — only motion',
+  'it found what it wanted',
+  'and still it reaches',
+  'longing does not end at contact',
+];
+let lineIdx = 0;
+let lastWhisper = -9999;
+
+function whisper(msg) {
+  whisperEl.textContent = msg;
+  whisperEl.classList.add('show');
+  setTimeout(() => whisperEl.classList.remove('show'), 3800);
+}
+
+// stars — generated once
+const stars = [];
+for (let i = 0; i < 160; i++) {
+  stars.push({
+    x: Math.random(),
+    y: Math.random() * 0.72,
+    r: 0.3 + Math.random() * 1.1,
+    a: 0.1 + Math.random() * 0.55,
+    phase: Math.random() * Math.PI * 2,
+    spd: 0.003 + Math.random() * 0.009
+  });
+}
+
+const moonX = 0.78, moonY = 0.13, moonR = 38;
+
+// particles: spores, petals, fireflies
+const pts = [];
+
+class Particle {
+  constructor(x, y, kind) {
+    this.x = x; this.y = y;
+    this.kind = kind;
+    this.life = 1;
+
+    if (kind === 'spore') {
+      this.vx = (Math.random()-.5) * .6;
+      this.vy = -(0.3 + Math.random() * .5);
+      this.r = 1 + Math.random() * 1.4;
+      this.fade = 0.009 + Math.random() * .005;
+    } else if (kind === 'petal') {
+      this.vx = (Math.random()-.5) * 1.6;
+      this.vy = .4 + Math.random() * .9;
+      this.r = 2.5 + Math.random() * 2;
+      this.angle = Math.random() * Math.PI * 2;
+      this.spin = (Math.random()-.5) * .09;
+      this.fade = .004 + Math.random() * .004;
+      this.wobble = Math.random() * Math.PI * 2;
+    } else { // firefly
+      this.vx = (Math.random()-.5) * .25;
+      this.vy = -(0.05 + Math.random() * .12);
+      this.r = 1.2 + Math.random();
+      this.fade = .003 + Math.random() * .003;
+    }
+  }
+
+  tick() {
+    if (this.kind === 'petal') {
+      this.wobble += .04;
+      this.vx += Math.sin(this.wobble) * .035;
+      this.angle += this.spin;
+    }
+    if (this.kind === 'firefly') {
+      this.vx += (Math.random()-.5) * .07;
+      this.vy += (Math.random()-.5) * .035;
+    }
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= this.fade;
+    return this.life > 0;
+  }
+
+  draw(t) {
+    const a = this.life;
+    if (this.kind === 'spore') {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(190,215,145,${a * .33})`;
+      ctx.fill();
+    } else if (this.kind === 'petal') {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.angle);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.r * 1.6, this.r * .75, 0, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(195,175,128,${a * .52})`;
+      ctx.fill();
+      ctx.restore();
+    } else {
+      // firefly — flickers
+      const flicker = .45 + .55 * Math.abs(Math.sin(t * .003 + this.life * 9));
+      const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 3.5);
+      g.addColorStop(0, `rgba(200,235,140,${a * flicker * .85})`);
+      g.addColorStop(1, `rgba(150,200,80,0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r * 3.5, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawFlower(x, y, bloom, hue) {
+  const r = 5 * bloom;
+  for (let i = 0; i < 5; i++) {
+    const a = (i/5) * Math.PI*2 - Math.PI/2;
+    ctx.beginPath();
+    ctx.ellipse(
+      x + Math.cos(a)*r*1.7,
+      y + Math.sin(a)*r*1.7,
+      r, r*.6, a, 0, Math.PI*2
+    );
+    ctx.fillStyle = `hsla(${40+hue},55%,73%,${.52*bloom})`;
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, r*.7, 0, Math.PI*2);
+  ctx.fillStyle = `hsla(${50+hue},70%,82%,${.88*bloom})`;
+  ctx.fill();
+  for (let i = 0; i < 3; i++) {
+    const a = (i/3)*Math.PI*2;
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(a)*r*.3, y + Math.sin(a)*r*.3, r*.18, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(180,140,60,${.75*bloom})`;
+    ctx.fill();
+  }
+}
+
+// draws a single leaf — bezier shape with a mid-vein
+function leaf(x, y, angle, sz, alpha, wilt) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle + wilt * .7);
+
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(sz*.3, -sz*.25, sz*.85, -sz*.18, sz, 0);
+  ctx.bezierCurveTo(sz*.85, sz*.18, sz*.3, sz*.25, 0, 0);
+  ctx.fillStyle = `rgba(${40 + Math.round(wilt*55)},${85 - Math.round(wilt*28)},28,${alpha*(1-wilt*.5)})`;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.lineTo(sz*.88, 0);
+  ctx.strokeStyle = `rgba(25,60,15,${alpha*.38*(1-wilt)})`;
+  ctx.lineWidth = .5;
+  ctx.stroke();
+
+  for (let v = 1; v <= 3; v++) {
+    const vx = sz * v * .22;
+    const vy = sz * .11;
+    ctx.beginPath();
+    ctx.moveTo(vx, 0); ctx.lineTo(vx + sz*.05, -vy);
+    ctx.moveTo(vx, 0); ctx.lineTo(vx + sz*.05, vy);
+    ctx.strokeStyle = `rgba(25,60,15,${alpha*.2*(1-wilt)})`;
+    ctx.lineWidth = .35;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+class Tendril {
+  constructor(ox, oy, angle, maxSegs) {
+    this.nodes = [{x:ox, y:oy}];
+    this.angle = angle;
+    this.maxSegs = maxSegs;
+    this.phases = [Math.random()*Math.PI*2];
+    this.gtimer = 0;
+    // slightly slower than vine
+    this.ginterval = 20 + Math.floor(Math.random()*6);
+    this.wilting = false;
+    this.wp = 0; // wilt progress
+    this.dead = false;
+  }
+
+  vpt(i, t) {
+    const n = this.nodes[i];
+    if (!i) return {x:n.x, y:n.y};
+    const p = this.nodes[i-1];
+    const dx = n.x-p.x, dy = n.y-p.y;
+    const len = Math.sqrt(dx*dx+dy*dy) || 1;
+    const w = Math.sin(t*.014 + this.phases[i]) * 3.2;
+    return { x: n.x + (-dy/len)*w, y: n.y + (dx/len)*w };
+  }
+
+  update() {
+    if (this.dead) return;
+    if (this.wilting) {
+      this.wp = Math.min(1, this.wp + .023);
+      if (this.wp >= 1) this.dead = true;
+      return;
+    }
+    if (++this.gtimer >= this.ginterval && this.nodes.length < this.maxSegs) {
+      this.gtimer = 0;
+      const tip = this.nodes[this.nodes.length-1];
+      const drift = (Math.random()-.5)*.45;
+      this.angle += (Math.random()-.5)*.12;
+      this.nodes.push({
+        x: tip.x + Math.cos(this.angle+drift)*18,
+        y: tip.y + Math.sin(this.angle+drift)*18
+      });
+      this.phases.push(Math.random()*Math.PI*2);
+    }
+  }
+
+  draw(t, parentWp) {
+    if (this.dead || this.nodes.length < 2) return;
+    const wp = Math.max(this.wp, parentWp);
+    const vpts = this.nodes.map((_,i) => this.vpt(i,t));
+
+    if (wp > 0)
+      for (let i = 1; i < vpts.length; i++)
+        vpts[i].y += Math.sin((i/vpts.length)*Math.PI) * wp * 16;
+
+    const r = Math.round(45 + (115-45)*wp);
+    const g = Math.round(80 + (92-80)*wp);
+    const b = Math.round(28 + (48-28)*wp);
+
+    ctx.beginPath();
+    ctx.moveTo(vpts[0].x, vpts[0].y);
+    for (let i = 1; i < vpts.length-1; i++) {
+      const mx = (vpts[i].x+vpts[i+1].x)/2;
+      const my = (vpts[i].y+vpts[i+1].y)/2;
+      ctx.quadraticCurveTo(vpts[i].x, vpts[i].y, mx, my);
+    }
+    ctx.lineTo(vpts[vpts.length-1].x, vpts[vpts.length-1].y);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${(1-wp*.85)*.68})`;
+    ctx.lineWidth = Math.max(.3, 1.1*(1-wp*.7));
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+}
+
+class Vine {
+  constructor(ox, oy) {
+    this.nodes = [{x:ox, y:oy}];
+    this.phases = [Math.random()*Math.PI*2];
+    this.seglen = 34;
+    this.maxnodes = 80;
+    this.gtimer = 0;
+    this.gint = 10;
+    this.tendrils = [];
+    this.tset = new Set(); // tracks where tendrils spawned
+    this.leafdata = [];
+    this.wilting = false;
+    this.wp = 0;
+    this.bloom = 0;
+    this.dead = false;
+    this.hue = (Math.random()-.5) * 28;
+    this.flip = Math.random() > .5 ? 1 : -1; // droop direction
+  }
+
+  vpt(i, t) {
+    const n = this.nodes[i];
+    if (!i) return {x:n.x, y:n.y};
+    const p = this.nodes[i-1];
+    const dx=n.x-p.x, dy=n.y-p.y, len=Math.sqrt(dx*dx+dy*dy)||1;
+    const w = Math.sin(t*.011 + this.phases[i]) * 7;
+    return { x: n.x + (-dy/len)*w, y: n.y + (dx/len)*w };
+  }
+
+  get tip() { return this.nodes[this.nodes.length-1]; }
+
+  update(t) {
+    if (this.dead) return;
+
+    if (!this.wilting) {
+      if (++this.gtimer >= this.gint && this.nodes.length < this.maxnodes) {
+        this.gtimer = 0;
+        const tip = this.tip;
+        const dx = mouse.x - tip.x, dy = mouse.y - tip.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist > this.seglen*.6) {
+          const a = Math.atan2(dy,dx) + (Math.random()-.5)*.28;
+          this.nodes.push({
+            x: tip.x + Math.cos(a)*this.seglen,
+            y: tip.y + Math.sin(a)*this.seglen
+          });
+          this.phases.push(Math.random()*Math.PI*2);
+          const idx = this.nodes.length - 1;
+
+          if (idx >= 3 && idx%4===0 && !this.tset.has(idx) && this.tendrils.length < 8) {
+            this.tset.add(idx);
+            const nd = this.nodes[idx], pv = this.nodes[idx-1];
+            const ma = Math.atan2(nd.y-pv.y, nd.x-pv.x);
+            const side = Math.random()<.5 ? 1 : -1;
+            this.tendrils.push(new Tendril(nd.x, nd.y, ma + side*(0.7+Math.random()*.5), 4+Math.floor(Math.random()*4)));
+          }
+
+          if (idx >= 2 && idx%3===0) {
+            this.leafdata.push({
+              ni: idx,
+              side: idx%6===0 ? 1 : -1,
+              sz: 10 + Math.random()*8,
+              ph: Math.random()*Math.PI*2
+            });
+          }
+        }
+      }
+
+      // reached the cursor
+      const tip = this.tip;
+      const dx = tip.x - mouse.x, dy = tip.y - mouse.y;
+      if (mouse.moved && Math.sqrt(dx*dx+dy*dy) < 55) {
+        this.wilting = true;
+        this.tendrils.forEach(td => td.wilting = true);
+
+        for (let p = 0; p < 14; p++) {
+          pts.push(new Particle(
+            tip.x + (Math.random()-.5)*22,
+            tip.y + (Math.random()-.5)*22,
+            'petal'
+          ));
+        }
+
+        if (t - lastWhisper > 3200) {
+          lastWhisper = t;
+          whisper(lines[lineIdx++ % lines.length]);
+        }
+      }
+
+      this.bloom = Math.min(1, this.bloom + .01);
+    } else {
+      this.wp = Math.min(1, this.wp + .015);
+      if (this.wp >= 1) this.dead = true;
+    }
+
+    this.tendrils.forEach(td => td.update());
+  }
+
+  draw(t) {
+    if (this.dead || this.nodes.length < 2) return;
+    const wp = this.wp;
+    const vpts = this.nodes.map((_,i) => this.vpt(i,t));
+
+    if (wp > 0) {
+      for (let i = 1; i < vpts.length; i++) {
+        const pct = i / vpts.length;
+        vpts[i].y += Math.pow(pct, 1.5) * wp * 55;
+        vpts[i].x += Math.sin(pct*Math.PI) * wp * 12 * this.flip;
+      }
+    }
+
+    const cr = Math.round(52 + (115-52)*wp);
+    const cg = Math.round(88 + (100-88)*wp);
+    const cb = Math.round(35 + (50-35)*wp);
+
+    // shadow pass
+    ctx.beginPath();
+    ctx.moveTo(vpts[0].x+2, vpts[0].y+2);
+    for (let i = 1; i < vpts.length-1; i++) {
+      const mx=(vpts[i].x+vpts[i+1].x)/2+2, my=(vpts[i].y+vpts[i+1].y)/2+2;
+      ctx.quadraticCurveTo(vpts[i].x+2, vpts[i].y+2, mx, my);
+    }
+    ctx.strokeStyle = `rgba(0,0,0,${.11*(1-wp*.9)})`;
+    ctx.lineWidth = Math.max(.5, 3.5*(1-wp*.65));
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(vpts[0].x, vpts[0].y);
+    for (let i = 1; i < vpts.length-1; i++) {
+      const mx=(vpts[i].x+vpts[i+1].x)/2, my=(vpts[i].y+vpts[i+1].y)/2;
+      ctx.quadraticCurveTo(vpts[i].x, vpts[i].y, mx, my);
+    }
+    ctx.lineTo(vpts[vpts.length-1].x, vpts[vpts.length-1].y);
+    ctx.strokeStyle = `rgba(${cr},${cg},${cb},${1-wp*.88})`;
+    ctx.lineWidth = Math.max(.5, 3.2*(1-wp*.65));
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    if (this.nodes.length > 4) {
+      for (const ld of this.leafdata) {
+        if (ld.ni >= vpts.length) continue;
+        const pt = vpts[ld.ni], pv = vpts[Math.max(0, ld.ni-1)];
+        if (!pt || !pv) continue;
+        const a = Math.atan2(pt.y-pv.y, pt.x-pv.x);
+        const la = a + ld.side * (.9 + Math.sin(t*.009+ld.ph)*.15);
+        leaf(pt.x, pt.y, la, ld.sz*(1-wp*.3), (1-wp*.6)*.75, wp*.7);
+      }
+    }
+
+    const tippt = vpts[vpts.length-1];
+    if (this.bloom > 0 && wp < .12) drawFlower(tippt.x, tippt.y, this.bloom, this.hue);
+
+    if (wp > 0 && wp < .9) {
+      ctx.beginPath();
+      ctx.ellipse(tippt.x, tippt.y + wp*24, 3.5*(1-wp), 2*(1-wp), 0, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(190,165,100,${.62*(1-wp)})`;
+      ctx.fill();
+    }
+
+    this.tendrils.forEach(td => td.draw(t, wp));
+  }
+}
+
+let vines = [];
+let lastSpawn = -9999;
+let frame = 0;
+let lastBug = 0; // firefly timer, named this by mistake, leaving it
+
+function spawnVine() {
+  vines.push(new Vine(W*.15 + Math.random()*W*.7, H+5));
+}
+
+function bg(t) {
+  ctx.clearRect(0,0,W,H);
+
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#020704');
+  sky.addColorStop(.5,'#060d08');
+  sky.addColorStop(.85,'#0c1509');
+  sky.addColorStop(1,'#111a0a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0,0,W,H);
+
+  for (const s of stars) {
+    s.phase += s.spd;
+    const a = s.a * (.5 + .5*Math.sin(s.phase));
+    ctx.beginPath();
+    ctx.arc(s.x*W, s.y*H, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(220,235,200,${a})`;
+    ctx.fill();
+  }
+
+  // moon
+  const mx = moonX*W, my = moonY*H;
+  let g = ctx.createRadialGradient(mx,my,moonR,mx,my,moonR*5);
+  g.addColorStop(0,'rgba(200,220,170,0.08)');
+  g.addColorStop(1,'rgba(200,220,170,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(mx,my,moonR*5,0,Math.PI*2); ctx.fill();
+
+  g = ctx.createRadialGradient(mx-moonR*.25, my-moonR*.2, moonR*.1, mx, my, moonR);
+  g.addColorStop(0,'rgba(245,242,225,0.92)');
+  g.addColorStop(.7,'rgba(220,215,190,0.7)');
+  g.addColorStop(1,'rgba(180,175,150,0.3)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(mx,my,moonR,0,Math.PI*2); ctx.fill();
+
+  const mist = ctx.createLinearGradient(0,H*.78,0,H);
+  mist.addColorStop(0,'rgba(20,35,12,0)');
+  mist.addColorStop(1,'rgba(10,18,6,0.85)');
+  ctx.fillStyle = mist;
+  ctx.fillRect(0,0,W,H);
+
+  // soil
+  const soil = ctx.createLinearGradient(0,H-18,0,H);
+  soil.addColorStop(0,'rgba(40,28,14,0.9)');
+  soil.addColorStop(1,'rgba(25,16,8,1)');
+  ctx.fillStyle = soil;
+  ctx.fillRect(0,H-18,W,18);
+
+  for (const v of vines) {
+    if (v.dead) continue;
+    const glow = ctx.createRadialGradient(v.nodes[0].x, H, 0, v.nodes[0].x, H, 80);
+    glow.addColorStop(0, `rgba(60,100,30,${.07*(1-v.wp)})`);
+    glow.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, H-88, W, 88);
+  }
+
+  if (mouse.moved) {
+    const cg = ctx.createRadialGradient(mouse.x,mouse.y,0,mouse.x,mouse.y,110);
+    cg.addColorStop(0,'rgba(130,180,80,0.055)');
+    cg.addColorStop(1,'rgba(130,180,80,0)');
+    ctx.fillStyle = cg;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  frame++;
+  const t = performance.now();
+
+  bg(t);
+
+  if (frame > 60 && t - lastSpawn > 1800 && vines.filter(v=>!v.dead).length < 12) {
+    spawnVine();
+    lastSpawn = t;
+  }
+
+  vines = vines.filter(v => !v.dead);
+  for (const v of vines) { v.update(t); v.draw(t); }
+
+  if (mouse.moved && Math.random() < .024)
+    pts.push(new Particle(mouse.x+(Math.random()-.5)*50, mouse.y+(Math.random()-.5)*50, 'spore'));
+
+  if (t - lastBug > 2400 && Math.random() < .4) {
+    lastBug = t;
+    pts.push(new Particle(Math.random()*W, H*.4+Math.random()*H*.5, 'firefly'));
+  }
+
+  for (let i = pts.length-1; i >= 0; i--) {
+    if (!pts[i].tick()) { pts.splice(i,1); continue; }
+    pts[i].draw(t);
+  }
+
+  // vignette — always last
+  const vig = ctx.createRadialGradient(W/2,H/2,W*.28,W/2,H/2,W*.75);
+  vig.addColorStop(0,'rgba(0,0,0,0)');
+  vig.addColorStop(1,'rgba(0,0,0,0.54)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0,0,W,H);
+}
+
+loop();
+</script>
+</body>
+</html>
