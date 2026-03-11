@@ -416,8 +416,8 @@ class Vine {
         }
       }
 
-      // vines that have been growing too long wilt on their own
-      if (t - this.born > 18000) {
+      // hard 10s lifespan — wilt whether or not cursor was reached
+      if (t - this.born > 10000) {
         this.wilting = true;
         this.tendrils.forEach(td => (td.wilting = true));
       }
@@ -608,8 +608,9 @@ function loop() {
   drawBackground(t);
 
   const aliveCount = vines.reduce((n, v) => n + (v.dead ? 0 : 1), 0);
-  const spawnInterval = 2200 + aliveCount * 800;
-  if (t - lastSpawn > spawnInterval && aliveCount < 6) {
+  // exponential backoff — each extra vine doubles the wait
+  const spawnInterval = 1800 * Math.pow(2, aliveCount);
+  if (t - lastSpawn > spawnInterval && aliveCount < 5) {
     spawnVine();
     lastSpawn = t;
   }
